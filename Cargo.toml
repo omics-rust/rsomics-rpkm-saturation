@@ -12,6 +12,11 @@ description = "Subsample-based RPKM saturation analysis — Rust reimplementatio
 name = "rsomics-rpkm-saturation"
 path = "src/main.rs"
 
+
+[lib]
+name = "rsomics_rpkm_saturation"
+path = "src/lib.rs"
+doctest = false
 [dependencies]
 rsomics-common = { version = "0.6", features = ["rayon"] }
 rsomics-bamio = "0.1"
