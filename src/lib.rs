@@ -157,7 +157,6 @@ pub fn load_reads(
             Err(e) => return Err(RsomicsError::Io(e)),
         }
         let flags = buf.flags();
-        // Skip unmapped, secondary, supplementary
         if flags.is_unmapped()
             || flags.is_secondary()
             || flags.is_supplementary()
@@ -248,8 +247,7 @@ pub fn compute_saturation(
         v
     };
 
-    // Build a chrom → gene index for fast overlap lookup.
-    // Map: chrom → sorted vec of (tx_start, tx_end, gene_idx)
+    // chrom → sorted vec of (tx_start, tx_end, gene_idx) for binary-search overlap
     let mut chrom_index: HashMap<String, Vec<(u64, u64, usize)>> = HashMap::new();
     for (idx, gene) in genes.iter().enumerate() {
         chrom_index
@@ -257,14 +255,12 @@ pub fn compute_saturation(
             .or_default()
             .push((gene.tx_start, gene.tx_end, idx));
     }
-    // Sort each chrom list by start for binary-search lower bound.
     for v in chrom_index.values_mut() {
         v.sort_unstable_by_key(|&(s, _, _)| s);
     }
 
     let total = reads.len();
 
-    // Process fractions in parallel via rayon.
     let results: Vec<FractionResult> = fractions
         .into_par_iter()
         .map(|pct| {
@@ -280,7 +276,6 @@ pub fn compute_saturation(
 
             let sampled = index_sample(&mut rng, total, sample_size);
 
-            // Accumulate per-gene raw counts.
             let mut raw_counts = vec![0u64; genes.len()];
             for idx in sampled.iter() {
                 let read = &reads[idx];
