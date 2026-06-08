@@ -195,3 +195,62 @@ fn compat_vs_rseqc() {
         last_frac_col + 1
     );
 }
+
+/// Committed golden of the deterministic 100% fraction (BED6 key, raw count,
+/// RPKM). Sub-100% fractions are unseeded-RNG subsamples in RSeQC and cannot
+/// be byte-goldened; the 100% column uses all reads and is reproducible.
+fn load_golden() -> Vec<(String, u64, f64)> {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/saturation_100pct.golden.tsv");
+    std::fs::read_to_string(&path)
+        .expect("read golden")
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .map(|l| {
+            let c: Vec<&str> = l.split('\t').collect();
+            let key = c[..6].join("\t");
+            let raw = c[6].parse::<u64>().unwrap();
+            let rpkm = c[7].parse::<f64>().unwrap();
+            (key, raw, rpkm)
+        })
+        .collect()
+}
+
+#[test]
+fn compat_100pct_matches_golden() {
+    let bam = fixture("small.bam");
+    let bed = fixture("small.bed12");
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let prefix = tmp.path().join("ours").to_str().unwrap().to_string();
+    run_ours(&bam, &bed, &prefix);
+
+    let ours_raw = parse_xls(&format!("{prefix}.rawCount.xls"));
+    let ours_rpkm = parse_xls(&format!("{prefix}.eRPKM.xls"));
+    let golden = load_golden();
+
+    assert_eq!(ours_raw.len(), golden.len(), "gene count vs golden");
+    let last = last_col_index_of(&format!("{prefix}.eRPKM.xls"));
+
+    for (i, (key, g_raw, g_rpkm)) in golden.iter().enumerate() {
+        let (ours_key, raw_vals) = &ours_raw[i];
+        assert_eq!(ours_key, key, "gene key mismatch at row {i}");
+
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let ours_raw_100 = raw_vals[last].round() as u64;
+        assert_eq!(
+            ours_raw_100, *g_raw,
+            "rawCount@100 mismatch at row {i} ({key})"
+        );
+
+        let ours_rpkm_100 = ours_rpkm[i].1[last];
+        if *g_rpkm > 0.0 {
+            let rel = (ours_rpkm_100 - g_rpkm).abs() / g_rpkm;
+            assert!(
+                rel < 1e-6,
+                "RPKM@100 mismatch at row {i} ({key}): ours={ours_rpkm_100}, golden={g_rpkm}, rel={rel}"
+            );
+        } else {
+            assert_eq!(ours_rpkm_100, 0.0, "RPKM@100 should be 0 at row {i}");
+        }
+    }
+}
